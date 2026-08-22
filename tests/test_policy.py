@@ -1,6 +1,7 @@
 import unittest
 
 from agent_runtime.domain import Evaluation, OutcomeMatch, append_receipt, evaluate_policy
+from agent_runtime.demo_service import analyze_deterministically, parse_request
 
 
 def match(name: str, score: float) -> OutcomeMatch:
@@ -29,6 +30,30 @@ class PolicyTests(unittest.TestCase):
         second = append_receipt(first["event_hash"], "policy_agent", "pause", {"case": "CB-4"})
         self.assertEqual(second["previous_hash"], first["event_hash"])
         self.assertEqual(len(second["event_hash"]), 64)
+
+    def test_invalid_score_is_rejected_before_policy_execution(self):
+        with self.assertRaisesRegex(ValueError, "between 0 and 1"):
+            Evaluation("CB-5", "CS A", "CS B", (match("oop", 1.2),), 1)
+
+    def test_duplicate_citations_are_rejected(self):
+        duplicated = OutcomeMatch("a", "a", .9, "same-citation")
+        with self.assertRaisesRegex(ValueError, "unique source citation"):
+            Evaluation("CB-6", "CS A", "CS B", (duplicated, duplicated), 2)
+
+    def test_runtime_rejects_records_not_marked_synthetic(self):
+        with self.assertRaisesRegex(ValueError, "synthetic"):
+            parse_request({"case_id": "CB-7", "source_text": "real student record"})
+
+    def test_deterministic_runtime_never_issues_final_credit_decision(self):
+        request = parse_request({
+            "synthetic": True,
+            "case_id": "CB-8",
+            "source_text": "Object-oriented design, data structures, memory models, and MIPS lab",
+        })
+        result = analyze_deterministically(request)
+        self.assertIsNone(result["final_credit_decision"])
+        self.assertEqual(result["execution_mode"], "deterministic")
+        self.assertEqual(len(result["receipt"]["event_hash"]), 64)
 
 
 if __name__ == "__main__":

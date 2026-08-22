@@ -2,6 +2,8 @@
 
 **Autonomous transfer-credit operations with human-controlled academic decisions.**
 
+[Open the hosted synthetic demo](https://creditbridge-ai.wangshiyue1128.chatgpt.site)
+
 CreditBridge receives transcripts, syllabi, and degree requirements; constructs a cited evidence graph; compares course outcomes; applies institutional policy; and assembles a decision-ready packet. It interrupts an advisor only when evidence is incomplete, contradictory, low-confidence, or requires academic judgment.
 
 > CreditBridge recommends and prepares. Authorized institutional staff make every final credit decision.
@@ -31,28 +33,30 @@ flowchart LR
     F --> H[Audit receipt]
 ```
 
-## What is working in v0.1
+## What is working in v0.2
 
 - Advisor operations dashboard with queue, case workspace, evidence comparison, decision gate, and provenance ledger.
-- Upload interaction for transcript, syllabus, degree-audit, and supporting documents.
-- Five-stage runnable workflow visualization with explicit pause-before-decision behavior.
+- Server-side deterministic evidence-analysis API with bounded request contracts.
+- Synthetic text-source upload, outcome analysis, policy routing, and exportable JSON evidence packets.
+- Five-stage runnable workflow with explicit pause-before-decision behavior.
 - Outcome-level matching with cited source findings and confidence indicators.
 - Advisor approval, conditional approval, and faculty escalation interactions.
-- Tamper-evident audit receipt primitives.
-- Deterministic policy kernel with tests for high-confidence, weak, and incomplete evidence.
-- Strands Agents SDK implementation with specialized agents and bounded tools.
+- SHA-256 document integrity and tamper-evident human-decision receipts.
+- Deterministic policy kernel with validation and tests for high-confidence, weak, incomplete, malformed, and non-synthetic cases.
+- Strands Agents SDK orchestration plus an AgentCore-compatible container entrypoint.
+- GitHub Actions checks for the web build, API workflow, policy tests, linting, and Python compilation.
 - Responsive desktop and mobile layout.
 
-The hosted interface uses a synthetic, de-identified demonstration case. It does not claim a live university integration or a production academic determination.
+The hosted interface uses a synthetic, de-identified demonstration case and a real server endpoint, but it does **not** call Amazon Bedrock. It does not claim a live university integration, production document extraction, or an official academic determination.
 
 ## Architecture
 
 | Layer | Responsibility | Initial implementation |
 |---|---|---|
 | Experience | Advisor queue, evidence inspection, decisions | Next.js, React, TypeScript |
-| Orchestration | Fixed, observable agent sequence | Strands Agents SDK |
+| Orchestration | Fixed, observable agent sequence | Strands Agents SDK, AgentCore entrypoint |
 | Decision kernel | Deterministic thresholds and escalation | Pure Python domain module |
-| Evidence | Source citations and document integrity | SHA-256 receipts, structured outcomes |
+| Evidence | Source citations and document integrity | Structured outcomes, SHA-256 receipts |
 | Governance | Human authority and policy boundaries | Mandatory decision gate |
 | Observability | Event provenance and mutation detection | Hash-chained audit receipts |
 
@@ -67,18 +71,48 @@ npm ci
 npm run dev
 ```
 
+Run the complete web acceptance suite:
+
+```bash
+npm test
+```
+
 ### Agent runtime
 
-Python 3.10+ and AWS credentials with access to a supported Amazon Bedrock model are required for live Strands inference.
+Python 3.12+ is recommended. Policy and deterministic runtime tests do not need AWS credentials.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pytest -q tests/test_policy.py
+python -m unittest -v tests/test_policy.py
 ```
 
-The policy tests do not call a model or require AWS credentials.
+Live Strands inference is opt-in. It requires AWS credentials, access to an approved Amazon Bedrock model, and all of these explicit settings:
+
+```text
+CREDITBRIDGE_EXECUTION_MODE=strands
+CREDITBRIDGE_ALLOW_LIVE_MODEL=true
+BEDROCK_MODEL_ID=<approved model ID>
+```
+
+The default is deterministic, model-free execution. See the [AgentCore deployment runbook](docs/aws-agentcore-deployment.md).
+
+## Request contract
+
+The hosted demonstration accepts only synthetic text evidence. The AgentCore runtime additionally requires `synthetic: true`; a request without that assertion is rejected. Example:
+
+```json
+{
+  "synthetic": true,
+  "case_id": "CB-DEMO-0001",
+  "source_course": "DEMO CS 38",
+  "target_course": "DEMO CS 33",
+  "source_text": "Object-oriented design and data structures"
+}
+```
+
+Every response leaves `final_credit_decision` unset. A model or policy score may prepare a recommendation, but only an authorized institution can award or deny transfer credit.
 
 ## Security and privacy boundaries
 
@@ -87,6 +121,8 @@ The policy tests do not call a model or require AWS credentials.
 - Every material claim must carry a source citation.
 - Low-confidence, conflicting, or incomplete evidence routes to a human.
 - Demonstration records are synthetic and contain no student education records.
+- The public demo rejects requests that are not explicitly marked synthetic and limits source text to 50,000 characters.
+- Live Bedrock execution is disabled by default to prevent accidental cost or data transfer.
 - Production deployment requires institution-controlled identity, retention, encryption, and FERPA review.
 
 ## Evaluation plan
@@ -98,6 +134,13 @@ The policy tests do not call a model or require AWS credentials.
 - Correct escalation rate.
 - Median advisor handling time.
 - Reproducibility of generated packets and audit receipts.
+
+## Deliberate non-claims
+
+- No production OCR or PDF parser is wired into the hosted demo yet; its upload control reads `.txt`, `.md`, `.csv`, and `.json` source text.
+- No SIS, registrar, ASSIST, or university catalog integration is active.
+- No FERPA compliance certification is claimed.
+- No case can be finalized autonomously.
 
 ## Repository policy
 

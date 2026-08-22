@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from strands import Agent
+from strands.models import BedrockModel
 
 from .tools import extract_learning_outcomes, request_human_review, verify_document
 
@@ -11,18 +12,19 @@ POLICY_PROMPT = """You are CreditBridge's Policy Agent. Apply explicit instituti
 PACKET_PROMPT = """You are CreditBridge's Packet Agent. Assemble cited evidence and prior outputs into a review packet. Do not change scores or create unsupported facts."""
 
 
-def build_agents() -> dict[str, Agent]:
+def build_agents(model: BedrockModel | None = None) -> dict[str, Agent]:
+    common = {"model": model} if model is not None else {}
     return {
-        "intake": Agent(name="intake_agent", description="Normalizes academic records", system_prompt=INTAKE_PROMPT, tools=[verify_document, extract_learning_outcomes], callback_handler=None),
-        "evidence": Agent(name="evidence_agent", description="Builds cited outcome evidence", system_prompt=EVIDENCE_PROMPT, callback_handler=None),
-        "matching": Agent(name="matching_agent", description="Computes course alignment candidates", system_prompt=MATCHING_PROMPT, callback_handler=None),
-        "policy": Agent(name="policy_agent", description="Enforces decision boundaries", system_prompt=POLICY_PROMPT, tools=[request_human_review], callback_handler=None),
-        "packet": Agent(name="packet_agent", description="Builds the advisor packet", system_prompt=PACKET_PROMPT, callback_handler=None),
+        "intake": Agent(name="intake_agent", description="Normalizes academic records", system_prompt=INTAKE_PROMPT, tools=[verify_document, extract_learning_outcomes], callback_handler=None, **common),
+        "evidence": Agent(name="evidence_agent", description="Builds cited outcome evidence", system_prompt=EVIDENCE_PROMPT, callback_handler=None, **common),
+        "matching": Agent(name="matching_agent", description="Computes course alignment candidates", system_prompt=MATCHING_PROMPT, callback_handler=None, **common),
+        "policy": Agent(name="policy_agent", description="Enforces decision boundaries", system_prompt=POLICY_PROMPT, tools=[request_human_review], callback_handler=None, **common),
+        "packet": Agent(name="packet_agent", description="Builds the advisor packet", system_prompt=PACKET_PROMPT, callback_handler=None, **common),
     }
 
 
-def run_case(case_id: str, source_bundle: str) -> dict:
-    agents = build_agents()
+def run_case(case_id: str, source_bundle: str, model: BedrockModel | None = None) -> dict:
+    agents = build_agents(model)
     context = f"Case {case_id}\nSubmitted source bundle:\n{source_bundle}"
     intake = str(agents["intake"](context))
     evidence = str(agents["evidence"](f"Case {case_id}\nVerified intake:\n{intake}"))

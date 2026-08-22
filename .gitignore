@@ -40,3 +40,9 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/

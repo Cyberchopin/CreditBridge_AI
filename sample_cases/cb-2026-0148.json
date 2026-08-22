@@ -1,7 +1,7 @@
 {
   "case_id": "CB-2026-0148",
   "synthetic": true,
-  "student": "S. Wang",
+  "student": "Synthetic D-1048",
   "source": {"institution": "Irvine Valley College", "course": "CS 38", "title": "Java Programming"},
   "target": {"institution": "UCLA", "course": "CS 33", "title": "Introduction to Computer Organization"},
   "policy_result": {"state": "human_review", "confidence": 0.87, "exception": "Assembly programming laboratory depth is not demonstrated by the submitted syllabus."}

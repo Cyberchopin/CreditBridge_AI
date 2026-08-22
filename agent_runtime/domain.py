@@ -25,6 +25,16 @@ class Evaluation:
     required_outcomes: int
     policy_version: str = "2.4"
 
+    def __post_init__(self) -> None:
+        if self.required_outcomes <= 0:
+            raise ValueError("required_outcomes must be positive")
+        if len({item.source_citation for item in self.matches}) != len(self.matches):
+            raise ValueError("each outcome match requires a unique source citation")
+        if any(not 0 <= item.score <= 1 for item in self.matches):
+            raise ValueError("outcome scores must be between 0 and 1")
+        if any(not item.source_citation.strip() for item in self.matches):
+            raise ValueError("source citations cannot be empty")
+
     @property
     def coverage(self) -> float:
         return sum(item.score for item in self.matches) / self.required_outcomes
@@ -36,6 +46,7 @@ class PolicyResult:
     confidence: float
     reasons: tuple[str, ...]
     requires_human: bool
+    rule_ids: tuple[str, ...]
 
 
 def evaluate_policy(evaluation: Evaluation) -> PolicyResult:
@@ -45,12 +56,13 @@ def evaluate_policy(evaluation: Evaluation) -> PolicyResult:
             confidence=round(evaluation.coverage, 3),
             reasons=("One or more required outcomes have no cited evidence.",),
             requires_human=True,
+            rule_ids=("CB-EVIDENCE-001",),
         )
     weak = tuple(match for match in evaluation.matches if match.score < 0.70)
     if weak or evaluation.coverage < 0.90:
         reason = "Material outcome ambiguity requires academic judgment."
-        return PolicyResult("human_review", round(evaluation.coverage, 3), (reason,), True)
-    return PolicyResult("auto_recommend", round(evaluation.coverage, 3), ("All policy thresholds satisfied.",), False)
+        return PolicyResult("human_review", round(evaluation.coverage, 3), (reason,), True, ("CB-POLICY-004",))
+    return PolicyResult("auto_recommend", round(evaluation.coverage, 3), ("All policy thresholds satisfied.",), False, ("CB-POLICY-002",))
 
 
 def append_receipt(previous_hash: str, actor: str, action: str, payload: dict) -> dict:
