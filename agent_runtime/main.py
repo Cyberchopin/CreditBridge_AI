@@ -1,4 +1,5 @@
-﻿from typing import Any
+﻿import json
+from typing import Any
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from orchestrator import run_case
@@ -14,6 +15,14 @@ def invoke(payload: dict[str, Any], context: Any = None) -> dict[str, Any]:
             "status": "rejected",
             "error": "Payload must be a JSON object.",
         }
+        prompt_payload = payload.get("prompt")
+    if isinstance(prompt_payload, str):
+        try:
+            parsed_prompt = json.loads(prompt_payload)
+            if isinstance(parsed_prompt, dict):
+                payload = {**payload, **parsed_prompt}
+        except json.JSONDecodeError:
+            pass
 
     case_id = str(payload.get("case_id", "")).strip()
     source_bundle = str(
