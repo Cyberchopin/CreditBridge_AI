@@ -3,8 +3,18 @@ from __future__ import annotations
 from strands import Agent
 from strands.models import BedrockModel
 
-from .tools import extract_learning_outcomes, request_human_review, verify_document
-
+try:
+    from .tools import (
+        extract_learning_outcomes,
+        request_human_review,
+        verify_document,
+    )
+except ImportError:
+    from tools import (
+        extract_learning_outcomes,
+        request_human_review,
+        verify_document,
+    )
 INTAKE_PROMPT = """You are CreditBridge's Intake Agent. Normalize only user-supplied academic documents. Never infer missing grades, units, institutions, or course identities. Every extracted field must retain a source citation."""
 EVIDENCE_PROMPT = """You are CreditBridge's Evidence Agent. Build a source-grounded map of course learning outcomes. Distinguish quotations from inferences and reject uncited claims."""
 MATCHING_PROMPT = """You are CreditBridge's Matching Agent. Compare learning outcomes, assessment depth, contact hours, prerequisites, and lab requirements. Return structured candidates, not academic decisions."""

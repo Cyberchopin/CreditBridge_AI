@@ -41,8 +41,52 @@ next-env.d.ts
 /outputs/
 /work/
 
+
 # python
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+
+# Python / uv
+.venv/
+agent_runtime/.venv/
+__pycache__/
+*/__pycache__/
+*.pyc
+.uv-cache/
+
+# AgentCore local artifacts
+CreditBridge/agentcore/*.zip
+CreditBridge/agentcore/.cli/
+
+# Local duplicate/extracted folders
+CreditBridge_AI-main/
+
+# Secrets
+.env
+.env.local
+
+# Python / uv
+.venv/
+agent_runtime/.venv/
+__pycache__/
+*/__pycache__/
+*.pyc
+.uv-cache/
+
+# AgentCore local artifacts
+CreditBridge/agentcore/*.zip
+CreditBridge/agentcore/.cli/
+
+# Local duplicate/extracted folders
+CreditBridge_AI-main/
+
+# Secrets
+.env
+.env.local
+
+# AgentCore generated staging/context
+CreditBridge/agentcore/CreditBridgeAgent/
+CreditBridge/agentcore/.llm-context/
+
