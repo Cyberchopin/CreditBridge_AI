@@ -2,7 +2,7 @@
 from typing import Any
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
-from orchestrator import run_case
+
 
 app = BedrockAgentCoreApp()
 
@@ -50,6 +50,8 @@ def invoke(payload: dict[str, Any], context: Any = None) -> dict[str, Any]:
             "case_id": case_id,
             "error": "source_bundle exceeds the 100,000 character limit.",
         }
+
+    from orchestrator import run_case
 
     result = run_case(case_id=case_id, source_bundle=source_bundle)
 
