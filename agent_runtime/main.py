@@ -16,10 +16,11 @@ def invoke(payload: dict[str, Any], context: Any = None) -> dict[str, Any]:
             "error": "Payload must be a JSON object.",
         }
 
-    prompt_payload = payload.get("prompt")
+        prompt_payload = payload.get("prompt")
     if isinstance(prompt_payload, str):
+        cleaned_prompt = prompt_payload.strip().lstrip("\ufeff")
         try:
-            parsed_prompt = json.loads(prompt_payload)
+            parsed_prompt = json.loads(cleaned_prompt)
             if isinstance(parsed_prompt, dict):
                 payload = {**payload, **parsed_prompt}
         except json.JSONDecodeError:
