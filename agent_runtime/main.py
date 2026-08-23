@@ -15,7 +15,8 @@ def invoke(payload: dict[str, Any], context: Any = None) -> dict[str, Any]:
             "status": "rejected",
             "error": "Payload must be a JSON object.",
         }
-        prompt_payload = payload.get("prompt")
+
+    prompt_payload = payload.get("prompt")
     if isinstance(prompt_payload, str):
         try:
             parsed_prompt = json.loads(prompt_payload)
@@ -55,7 +56,6 @@ def invoke(payload: dict[str, Any], context: Any = None) -> dict[str, Any]:
         "status": "completed",
         **result,
     }
-
 
 if __name__ == "__main__":
     app.run()
