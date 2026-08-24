@@ -14,6 +14,26 @@ export type DemoOutcome = {
   citation: string;
 };
 
+export type AuditEvent = {
+  time: string;
+  actor: string;
+  action: string;
+  control: string;
+  eventId: string;
+};
+
+export type ExecutionReceipt = {
+  mode: "agentcore_live" | "agentcore_cached" | "deterministic";
+  runtime: string;
+  region: string;
+  traceId: string;
+  durationMs: number;
+  invokedAt: string;
+  responseHash: string | null;
+  remoteStatus: "completed" | "unavailable";
+  fallbackReason?: string;
+};
+
 export type DemoAnalysis = {
   caseId: string;
   sourceCourse: string;
@@ -23,10 +43,11 @@ export type DemoAnalysis = {
   exception: string | null;
   outcomes: DemoOutcome[];
   documentHash: string;
-  audit: Array<{ time: string; actor: string; action: string; control: string; eventId: string }>;
+  audit: AuditEvent[];
+  execution?: ExecutionReceipt;
 };
 
-const DEFAULT_TEXT = "Object-oriented design\nData structures and algorithms\nMemory models and machine representation\nJava programming laboratory";
+export const DEFAULT_SYNTHETIC_SOURCE = "Object-oriented design\nData structures and algorithms\nMemory models and machine representation\nJava programming laboratory";
 
 function contains(text: string, terms: string[]) {
   const normalized = text.toLowerCase();
@@ -41,7 +62,7 @@ export function analyzeDemoCase(input: DemoCaseInput): DemoAnalysis {
   const caseId = (input.caseId || "CB-2026-0148").slice(0, 64);
   const sourceCourse = (input.sourceCourse || "IVC CS 38").slice(0, 80);
   const targetCourse = (input.targetCourse || "UCLA CS 33").slice(0, 80);
-  const text = (input.sourceText || DEFAULT_TEXT).slice(0, 50_000);
+  const text = (input.sourceText || DEFAULT_SYNTHETIC_SOURCE).slice(0, 50_000);
   const documentHash = createHash("sha256").update(text).digest("hex");
   const outcomes: DemoOutcome[] = [
     { label: "Object-oriented design", classification: contains(text, ["object-oriented", "object oriented", "oop"]) ? "Direct" : "Partial", score: contains(text, ["object-oriented", "object oriented", "oop"]) ? 0.96 : 0.58, citation: "submitted_source#object-oriented-design" },

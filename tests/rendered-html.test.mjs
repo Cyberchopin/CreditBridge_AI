@@ -48,6 +48,7 @@ test("executes the synthetic evidence API and seals a human receipt", async () =
       sourceCourse: "DEMO CS 38",
       targetCourse: "DEMO CS 33",
       sourceText: "Object-oriented design, data structures and algorithms, memory models",
+      preferAgentCore: true,
     }),
   }), env, ctx);
   assert.equal(analysisResponse.status, 200);
@@ -55,6 +56,10 @@ test("executes the synthetic evidence API and seals a human receipt", async () =
   assert.equal(analysis.caseId, "CB-TEST-1");
   assert.equal(analysis.decision, "human_review");
   assert.equal(analysis.documentHash.length, 64);
+  assert.equal(analysis.execution.mode, "deterministic");
+  assert.equal(analysis.execution.remoteStatus, "unavailable");
+  assert.match(analysis.execution.fallbackReason, /fixed synthetic fixture/i);
+  assert.equal(analysis.audit.at(-1).actor, "Policy Kernel");
 
   const receiptResponse = await worker.fetch(new Request("http://localhost/api/demo/decision", {
     method: "POST",
@@ -65,6 +70,8 @@ test("executes the synthetic evidence API and seals a human receipt", async () =
   const receipt = await receiptResponse.json();
   assert.equal(receipt.receiptHash.length, 64);
   assert.equal(receipt.authorityRequired, true);
+  assert.equal(receipt.auditEvent.actor, "Authorized Advisor");
+  assert.equal(receipt.auditEvent.control, "Human decision");
 });
 
 test("rejects evidence not explicitly marked synthetic", async () => {

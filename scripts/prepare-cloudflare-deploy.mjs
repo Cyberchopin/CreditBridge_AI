@@ -17,6 +17,8 @@ const generated = JSON.parse(await readFile(sourcePath, "utf8"));
 const deployment = {
   ...generated,
   name: "creditbridge-ai",
+  compatibility_date: "2026-08-24",
+  compatibility_flags: ["nodejs_compat"],
   d1_databases: [
     {
       binding: "DB",

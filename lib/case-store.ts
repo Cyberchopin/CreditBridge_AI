@@ -36,6 +36,30 @@ export async function persistAnalysis(analysis: DemoAnalysis): Promise<boolean> 
 
   const now = new Date().toISOString();
   const status = analysis.decision === "packet_ready" ? "packet_ready" : "human_review";
+  let previousHash = analysis.documentHash;
+  const eventStatements = analysis.audit.map((event) => {
+    const eventHash = chainHash(previousHash, event.eventId, event.action);
+    previousHash = eventHash;
+    return db.prepare(`
+      INSERT INTO audit_events (
+        event_id, case_id, occurred_at, actor, action, control, chain_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(event_id) DO UPDATE SET
+        occurred_at = excluded.occurred_at,
+        actor = excluded.actor,
+        action = excluded.action,
+        control = excluded.control,
+        chain_hash = excluded.chain_hash
+    `).bind(
+      event.eventId,
+      analysis.caseId,
+      now,
+      event.actor,
+      event.action,
+      event.control,
+      eventHash,
+    );
+  });
   const statements = [
     db.prepare(`
       INSERT INTO transfer_cases (
@@ -63,29 +87,24 @@ export async function persistAnalysis(analysis: DemoAnalysis): Promise<boolean> 
       now,
       now,
     ),
-    ...analysis.audit.map((event) => db.prepare(`
-      INSERT INTO audit_events (
-        event_id, case_id, occurred_at, actor, action, control, chain_hash
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(event_id) DO UPDATE SET
-        occurred_at = excluded.occurred_at,
-        actor = excluded.actor,
-        action = excluded.action,
-        control = excluded.control,
-        chain_hash = excluded.chain_hash
-    `).bind(
-      event.eventId,
-      analysis.caseId,
-      now,
-      event.actor,
-      event.action,
-      event.control,
-      chainHash(analysis.documentHash, event.eventId, event.action),
-    )),
+    ...eventStatements,
   ];
 
   await db.batch(statements);
   return true;
+}
+
+export async function getCaseChainHead(caseId: string): Promise<string | null> {
+  const db = await database();
+  if (!db) return null;
+  const row = await db.prepare(`
+    SELECT chain_hash AS chainHash
+    FROM audit_events
+    WHERE case_id = ?
+    ORDER BY rowid DESC
+    LIMIT 1
+  `).bind(caseId).first<{ chainHash: string }>();
+  return row?.chainHash ?? null;
 }
 
 export async function persistDecision(input: {

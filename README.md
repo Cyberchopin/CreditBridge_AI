@@ -2,7 +2,7 @@
 
 **Autonomous transfer-credit operations with human-controlled academic decisions.**
 
-[Open the production demo](https://creditbridge-ai.cyberchopin.workers.dev)
+[Open the production synthetic demo](https://creditbridge-ai.cyberchopin.workers.dev)
 
 The production interface runs on Cloudflare Workers with a durable D1 case ledger. The previous ChatGPT Sites deployment remains available only as a rollback environment.
 
@@ -35,7 +35,7 @@ flowchart LR
     F --> H[Audit receipt]
 ```
 
-## What is working in v0.2
+## What is working in v0.3
 
 - Advisor operations dashboard with queue, case workspace, evidence comparison, decision gate, and provenance ledger.
 - Server-side deterministic evidence-analysis API with bounded request contracts.
@@ -48,9 +48,14 @@ flowchart LR
 - Strands Agents SDK orchestration plus an AgentCore-compatible container entrypoint.
 - GitHub Actions checks for the web build, API workflow, policy tests, linting, and Python compilation.
 - Cloudflare Workers production deployment with durable D1 case persistence.
+- Signed Cloudflare-to-AgentCore invocation with an exact-runtime IAM boundary.
+- Visible execution receipts containing runtime, region, trace ID, latency, and response hash.
+- A 15-minute verified-result cache, 12-invocation daily public cap, and explicit deterministic fallback.
+- Human decisions appended to the same visible audit trail used by agent and policy events.
+- Inspectable source citations and clearly labeled synthetic fixture documents.
 - Responsive desktop and mobile layout.
 
-The hosted interface uses a synthetic, de-identified demonstration case and a real server endpoint, but it does **not** call Amazon Bedrock. It does not claim a live university integration, production document extraction, or an official academic determination.
+The hosted interface uses a synthetic, de-identified demonstration case. When its least-privilege Worker secrets are enabled, the fixed demo invokes the deployed Amazon Bedrock AgentCore runtime; the interface displays whether a result is live, cached, or a deterministic fallback. It does not claim a live university integration, production document extraction, or an official academic determination.
 
 ## Architecture
 
@@ -62,6 +67,7 @@ The hosted interface uses a synthetic, de-identified demonstration case and a re
 | Evidence | Source citations and document integrity | Structured outcomes, SHA-256 receipts |
 | Governance | Human authority and policy boundaries | Mandatory decision gate |
 | Observability | Event provenance and mutation detection | Hash-chained audit receipts |
+| Edge control | Public cost and failure containment | D1 cache, daily cap, explicit fallback |
 
 The architecture deliberately separates probabilistic extraction and matching from deterministic authorization. Model output can propose evidence and candidates; policy code determines whether the case must stop, and a human owns the consequential decision.
 
@@ -82,6 +88,8 @@ npm test
 
 For the independent Cloudflare production path, see the
 [Cloudflare deployment runbook](docs/cloudflare-deployment.md).
+For the least-privilege AgentCore connection, see the
+[Cloudflare-to-AgentCore runbook](docs/agentcore-cloudflare-link.md).
 
 ### Agent runtime
 
@@ -128,7 +136,9 @@ Every response leaves `final_credit_decision` unset. A model or policy score may
 - Low-confidence, conflicting, or incomplete evidence routes to a human.
 - Demonstration records are synthetic and contain no student education records.
 - The public demo rejects requests that are not explicitly marked synthetic and limits source text to 50,000 characters.
-- Live Bedrock execution is disabled by default to prevent accidental cost or data transfer.
+- Public live AgentCore execution is restricted to the fixed synthetic fixture; custom demo text stays on the deterministic path.
+- Live execution is disabled unless all Worker secrets are present, is cached for 15 minutes, and is capped at 12 new invocations per UTC day.
+- Cloudflare credentials receive only `bedrock-agentcore:InvokeAgentRuntime` on the exact CreditBridge runtime ARN.
 - Production deployment requires institution-controlled identity, retention, encryption, and FERPA review.
 
 ## Evaluation plan

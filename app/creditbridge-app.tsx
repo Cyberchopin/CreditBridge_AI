@@ -4,6 +4,18 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type View = "queue" | "case" | "audit";
 type PipelineState = "ready" | "running" | "review" | "approved";
+type AuditEvent = { time: string; actor: string; action: string; control: string; eventId: string };
+type Execution = {
+  mode: "agentcore_live" | "agentcore_cached" | "deterministic";
+  runtime: string;
+  region: string;
+  traceId: string;
+  durationMs: number;
+  invokedAt: string;
+  responseHash: string | null;
+  remoteStatus: "completed" | "unavailable";
+  fallbackReason?: string;
+};
 type Analysis = {
   caseId: string;
   sourceCourse: string;
@@ -13,7 +25,8 @@ type Analysis = {
   exception: string | null;
   outcomes: Array<{ label: string; classification: "Direct" | "Partial" | "Missing depth"; score: number; citation: string }>;
   documentHash: string;
-  audit: Array<{ time: string; actor: string; action: string; control: string; eventId: string }>;
+  audit: AuditEvent[];
+  execution?: Execution;
   persistence?: "durable" | "local-only";
 };
 type StoredCase = {
@@ -26,8 +39,8 @@ type StoredCase = {
 };
 
 const agentSteps = [
-  { name: "Intake", detail: "Normalized 3 source documents", tone: "green" },
-  { name: "Evidence", detail: "Found 14 cited learning outcomes", tone: "green" },
+  { name: "Intake", detail: "Validated the synthetic source bundle", tone: "green" },
+  { name: "Evidence", detail: "Mapped 4 source-cited outcomes", tone: "green" },
   { name: "Matching", detail: "Computed outcome-level alignment", tone: "green" },
   { name: "Policy", detail: "Flagged one material ambiguity", tone: "amber" },
   { name: "Packet", detail: "Waiting for advisor determination", tone: "muted" },
@@ -70,10 +83,16 @@ export default function CreditBridgeApp() {
   const [sourceText, setSourceText] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [receiptHash, setReceiptHash] = useState("");
+  const [decisionEvent, setDecisionEvent] = useState<AuditEvent | null>(null);
+  const [showCitations, setShowCitations] = useState(false);
   const [savedCases, setSavedCases] = useState<StoredCase[]>([]);
   const [ledgerMode, setLedgerMode] = useState<"durable" | "local-only">("local-only");
   const fileRef = useRef<HTMLInputElement>(null);
   const statusLabel = useMemo(() => ({ ready: "Ready to analyze", running: "Agents working", review: "Human review required", approved: "Decision recorded" }[pipeline]), [pipeline]);
+  const visibleAudit = useMemo(() => {
+    const base = analysis?.audit.map((item) => [item.time, item.actor, item.action, item.control, item.eventId]) ?? auditRows;
+    return decisionEvent ? [...base, [decisionEvent.time, decisionEvent.actor, decisionEvent.action, decisionEvent.control, decisionEvent.eventId]] : base;
+  }, [analysis, decisionEvent]);
 
   async function refreshCases() {
     try {
@@ -107,9 +126,10 @@ export default function CreditBridgeApp() {
     let step = 0;
     const timer = window.setInterval(() => { step = Math.min(step + 1, 4); setActiveStep(step); }, 430);
     try {
-      const response = await fetch("/api/demo/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ synthetic: true, caseId: "CB-2026-0148", sourceCourse: "IVC CS 38", targetCourse: `UCLA ${selectedMatch}`, sourceText }) });
+      const response = await fetch("/api/demo/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ synthetic: true, caseId: "CB-2026-0148", sourceCourse: "IVC CS 38", targetCourse: `UCLA ${selectedMatch}`, sourceText, preferAgentCore: sourceText.length === 0 }) });
       if (!response.ok) throw new Error("analysis request failed");
       const result = await response.json() as Analysis;
+      setDecisionEvent(null); setReceiptHash("");
       setAnalysis(result); setActiveStep(5); setPipeline(result.decision === "packet_ready" ? "ready" : "review");
       setLedgerMode(result.persistence || "local-only");
       await refreshCases();
@@ -121,8 +141,9 @@ export default function CreditBridgeApp() {
   async function decide(decision: "approve" | "escalate") {
     const response = await fetch("/api/demo/decision", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caseId: analysis?.caseId || "CB-2026-0148", decision, note, previousHash: analysis?.documentHash || "demo-genesis" }) });
     if (!response.ok) { notify("Decision was not recorded."); return; }
-    const receipt = await response.json() as { receiptHash: string; persistence?: "durable" | "local-only" };
+    const receipt = await response.json() as { receiptHash: string; auditEvent: AuditEvent; persistence?: "durable" | "local-only" };
     setReceiptHash(receipt.receiptHash);
+    setDecisionEvent(receipt.auditEvent);
     setLedgerMode(receipt.persistence || "local-only");
     await refreshCases();
     if (decision === "approve") { setPipeline("approved"); notify("Equivalency approved and audit receipt sealed"); }
@@ -146,7 +167,7 @@ export default function CreditBridgeApp() {
       <div className="brand"><Logo /><div><strong>CreditBridge</strong><span>Academic Operations</span></div></div>
       <nav aria-label="Primary navigation">
         <button className={view === "queue" ? "nav-active" : ""} onClick={() => setView("queue")}><Icon name="overview" />Overview</button>
-        <button className={view === "case" ? "nav-active" : ""} onClick={() => setView("case")}><Icon name="cases" />Cases<span className="nav-count">8</span></button>
+        <button className={view === "case" ? "nav-active" : ""} onClick={() => setView("case")}><Icon name="cases" />Cases<span className="nav-count">{savedCases.length || 1}</span></button>
         <button onClick={() => notify("Evidence library indexed: 1,248 course records")}><Icon name="evidence" />Evidence library</button>
         <button onClick={() => notify("Policy set v2.4 is active")}><Icon name="policy" />Policy controls</button>
         <button className={view === "audit" ? "nav-active" : ""} onClick={() => setView("audit")}><Icon name="audit" />Audit trail</button>
@@ -158,25 +179,26 @@ export default function CreditBridgeApp() {
       <header className="topbar"><div><p className="eyebrow">TRANSFER CREDIT OPERATIONS</p><h1>{view === "case" ? "Decision workspace" : view === "audit" ? "Evidence audit trail" : "Advisor command center"}</h1></div><div className="top-actions"><button className="icon-button" aria-label="Notifications">●<span /></button><button className="secondary" onClick={exportReport}>↓ Export</button><button className="secondary" onClick={() => fileRef.current?.click()}>＋ Add source text</button><input ref={fileRef} type="file" multiple hidden onChange={onFiles} accept=".txt,.csv,.json,.md" /><button className="primary" onClick={runPipeline}>{pipeline === "running" ? "Analyzing…" : "Run agents"}<span>→</span></button></div></header>
 
       {view === "queue" && <Overview onOpen={() => setView("case")} savedCases={savedCases} ledgerMode={ledgerMode} />}
-      {view === "audit" && <Audit analysis={analysis} receiptHash={receiptHash} />}
+      {view === "audit" && <Audit analysis={analysis} receiptHash={receiptHash} decisionEvent={decisionEvent} />}
       {view === "case" && <>
         <section className="case-strip"><div><button className="back" onClick={() => setView("queue")}>← All cases</button><div className="case-title"><span className="case-id">CB-2026-0148</span><h2>IVC CS 38 → UCLA Computer Science</h2><span className={`status-pill status-${pipeline}`}>{statusLabel}</span></div></div><div className="case-meta"><span>Record <strong>Synthetic D-1048</strong></span><span>Ledger <strong className={ledgerMode === "durable" ? "good" : ""}>{ledgerMode === "durable" ? "Durable" : "Local demo"}</strong></span><span>SLA <strong className="good">18h remaining</strong></span></div></section>
         {uploaded.length > 0 && <div className="upload-banner"><strong>Synthetic evidence ready</strong><span>{uploaded.join(" · ")} · do not upload real student records</span><button onClick={runPipeline}>Analyze now</button></div>}
         <section className="metrics"><Metric label="Recommended match" value={selectedMatch} detail="UCLA Computer Science" /><Metric label="Evidence confidence" value={`${analysis?.confidence ?? 87}%`} detail={`${analysis?.outcomes.length ?? 4} required outcomes evaluated`} accent /><Metric label="Estimated time saved" value="2.4h" detail="Per evaluation case" /><Metric label="Decision risk" value={analysis?.decision === "packet_ready" ? "Low" : "Medium"} detail={analysis?.exception || "Lab-depth ambiguity"} /></section>
 
         <section className="content-grid"><div className="left-stack">
-          <article className="panel pipeline-panel"><div className="panel-head"><div><p className="section-kicker">AGENT ORCHESTRATION</p><h3>Case execution</h3></div><span className={`live-chip ${pipeline === "running" ? "is-running" : ""}`}><i />{pipeline === "running" ? "Processing" : "Paused safely"}</span></div><div className="agent-flow">{agentSteps.map((step, index) => <div className={`agent-row ${index < activeStep ? "done" : index === activeStep && pipeline === "running" ? "working" : "waiting"}`} key={step.name}><div className="agent-index">{index < activeStep ? "✓" : String(index + 1).padStart(2, "0")}</div><div className="agent-copy"><strong>{step.name} Agent</strong><span>{index < activeStep ? step.detail : index === activeStep && pipeline === "running" ? "Executing tools and recording evidence…" : "Waiting for upstream result"}</span></div><div className={`agent-result ${step.tone}`}>{index < activeStep ? (index === 3 ? "1 exception" : "Complete") : "Pending"}</div></div>)}</div></article>
+          <article className="panel pipeline-panel"><div className="panel-head"><div><p className="section-kicker">AGENT ORCHESTRATION</p><h3>Case execution</h3></div><span className={`live-chip ${pipeline === "running" ? "is-running" : ""}`}><i />{pipeline === "running" ? "Processing" : "Paused safely"}</span></div>{analysis?.execution && <div className={`execution-receipt execution-${analysis.execution.remoteStatus}`}><div><strong>{analysis.execution.mode === "agentcore_live" ? "Live AgentCore execution" : analysis.execution.mode === "agentcore_cached" ? "Verified AgentCore receipt" : "Deterministic safety path"}</strong><span>{analysis.execution.runtime} · {analysis.execution.region} · {analysis.execution.durationMs.toLocaleString()} ms</span></div><code>{analysis.execution.traceId.slice(0, 36)}…</code>{analysis.execution.fallbackReason && <small>{analysis.execution.fallbackReason}</small>}</div>}<div className="agent-flow">{agentSteps.map((step, index) => <div className={`agent-row ${index < activeStep ? "done" : index === activeStep && pipeline === "running" ? "working" : "waiting"}`} key={step.name}><div className="agent-index">{index < activeStep ? "✓" : String(index + 1).padStart(2, "0")}</div><div className="agent-copy"><strong>{step.name} Agent</strong><span>{index < activeStep ? step.detail : index === activeStep && pipeline === "running" ? "Executing tools and recording evidence…" : "Waiting for upstream result"}</span></div><div className={`agent-result ${step.tone}`}>{index < activeStep ? (index === 3 ? "1 exception" : "Complete") : "Pending"}</div></div>)}</div></article>
 
-          <article className="panel evidence-panel"><div className="panel-head"><div><p className="section-kicker">EVIDENCE GRAPH</p><h3>Outcome-level comparison</h3></div><button className="text-button" onClick={() => notify(`${analysis?.outcomes.length ?? 4} evidence citations verified against source text`)}>View citations ↗</button></div><div className="course-headings"><div><span>SOURCE COURSE</span><strong>{analysis?.sourceCourse || "IVC CS 38"}</strong><small>Submitted course evidence</small></div><div className="match-score"><span>{analysis?.confidence ?? 87}%</span><small>evidence + policy score</small></div><div><span>CANDIDATE MATCH</span><strong>{analysis?.targetCourse || `UCLA ${selectedMatch}`}</strong><small>Computer Organization</small></div></div><div className="outcomes">{(analysis?.outcomes || [{label:"Object-oriented design",classification:"Direct",score:.96},{label:"Data structures & algorithms",classification:"Direct",score:.93},{label:"Memory & machine representation",classification:"Partial",score:.71},{label:"Assembly programming laboratory",classification:"Missing depth",score:.42}]).map((item,i) => <div className="outcome" key={item.label}><span className="outcome-num">0{i+1}</span><strong>{item.label}</strong><span className={item.classification.includes("Missing") ? "warn" : item.classification === "Partial" ? "partial" : "match"}>{item.classification}</span><b>{Math.round(item.score*100)}%</b></div>)}</div><div className="source-proof"><span className="proof-icon">“</span><div><strong>Source-grounded finding</strong><p>{analysis?.exception || "IVC CS 38 covers Java memory models and references, but the submitted syllabus does not demonstrate assembly-language lab work comparable to CS 33 weeks 2–5."}</p><small>{analysis ? `Submitted source · SHA-256 ${analysis.documentHash.slice(0, 16)}… verified` : "IVC_CS38_Syllabus.pdf · pages 4–6 · SHA-256 verified"}</small></div></div></article>
+          <article className="panel evidence-panel"><div className="panel-head"><div><p className="section-kicker">EVIDENCE GRAPH</p><h3>Outcome-level comparison</h3></div><button className="text-button" onClick={() => setShowCitations(true)}>View citations ↗</button></div><div className="course-headings"><div><span>SOURCE COURSE</span><strong>{analysis?.sourceCourse || "IVC CS 38"}</strong><small>Submitted course evidence</small></div><div className="match-score"><span>{analysis?.confidence ?? 87}%</span><small>evidence + policy score</small></div><div><span>CANDIDATE MATCH</span><strong>{analysis?.targetCourse || `UCLA ${selectedMatch}`}</strong><small>Computer Organization</small></div></div><div className="outcomes">{(analysis?.outcomes || [{label:"Object-oriented design",classification:"Direct",score:.96,citation:"synthetic_source#object-oriented-design"},{label:"Data structures & algorithms",classification:"Direct",score:.93,citation:"synthetic_source#data-structures"},{label:"Memory & machine representation",classification:"Partial",score:.71,citation:"synthetic_source#memory"},{label:"Assembly programming laboratory",classification:"Missing depth",score:.42,citation:"synthetic_source#laboratory"}]).map((item,i) => <div className="outcome" key={item.label}><span className="outcome-num">0{i+1}</span><strong>{item.label}</strong><span className={item.classification.includes("Missing") ? "warn" : item.classification === "Partial" ? "partial" : "match"}>{item.classification}</span><b>{Math.round(item.score*100)}%</b></div>)}</div><div className="source-proof"><span className="proof-icon">“</span><div><strong>Source-grounded finding</strong><p>{analysis?.exception || "IVC CS 38 covers Java memory models and references, but the submitted syllabus does not demonstrate assembly-language lab work comparable to CS 33 weeks 2–5."}</p><small>{analysis ? `Synthetic source · SHA-256 ${analysis.documentHash.slice(0, 16)}… verified` : "Built-in synthetic source fixture · no student record"}</small></div></div></article>
         </div>
 
         <aside className="right-stack"><article className="panel decision-panel"><p className="section-kicker">HUMAN DECISION REQUIRED</p><div className="decision-icon">!</div><h3>Resolve lab-depth ambiguity</h3><p>The agent found strong conceptual alignment but cannot authorize equivalency because assembly lab evidence is incomplete.</p><label>Proposed equivalency<select value={selectedMatch} onChange={(e) => setSelectedMatch(e.target.value)}><option>CS 33</option><option>PIC 10C</option><option>Elective credit</option></select></label><label>Advisor note<textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional rationale for the permanent record…" /></label>{pipeline === "approved" ? <div className="approved-box"><strong>✓ Decision recorded</strong><span>Receipt sealed with policy v2.4</span></div> : <><button className="approve" onClick={() => decide("approve")}>Approve with condition</button><button className="escalate" onClick={() => decide("escalate")}>Escalate to faculty reviewer</button></>}<div className="safety-note"><Icon name="policy" size={16} />CreditBridge never finalizes academic credit without an authorized human decision.</div></article>
-          <article className="panel docs-panel"><div className="panel-head"><h3>Case documents</h3><span>{uploaded.length ? `${uploaded.length} supplied` : "3 verified"}</span></div>{(uploaded.length ? uploaded.map((file) => [file,"Ready for analysis"]) : [["Transcript.pdf","Registrar verified"], ["CS38_Syllabus.pdf","8 pages indexed"], ["UCLA_Degree_Audit.pdf","Policy context"]]).map(([file,meta]) => <button key={file} onClick={() => notify(`${file}: source integrity verified`)}><span className="doc-icon">SRC</span><div><strong>{file}</strong><small>{meta}</small></div><span>⋮</span></button>)}</article>
+          <article className="panel docs-panel"><div className="panel-head"><h3>Case sources</h3><span>{uploaded.length ? `${uploaded.length} supplied` : "2 synthetic fixtures"}</span></div>{(uploaded.length ? uploaded.map((file) => [file,"Synthetic text supplied for this session"]) : [["Synthetic_CS38_Source.txt","Built-in demonstration evidence"], ["Demo_Policy_v2.4.json","Synthetic policy fixture"]]).map(([file,meta]) => <button key={file} onClick={() => notify(`${file}: synthetic source integrity verified`)}><span className="doc-icon">SRC</span><div><strong>{file}</strong><small>{meta}</small></div><span>⋮</span></button>)}</article>
         </aside></section>
 
-        <article className="audit-preview panel"><div className="panel-head"><div><p className="section-kicker">ACCOUNTABLE BY DESIGN</p><h3>Immutable activity trail</h3></div><button className="text-button" onClick={() => setView("audit")}>Open full audit trail →</button></div><div className="audit-line">{(analysis?.audit.map((item) => [item.time,item.actor,item.action,item.control,item.eventId]) || auditRows).slice(0,4).map((row) => <div key={row[4]}><span>{row[0]}</span><strong>{row[1]}</strong><p>{row[2]}</p><em className={row[3] === "Review" ? "review" : "verified"}>{row[3]}</em></div>)}</div></article>
+        <article className="audit-preview panel"><div className="panel-head"><div><p className="section-kicker">ACCOUNTABLE BY DESIGN</p><h3>Immutable activity trail</h3></div><button className="text-button" onClick={() => setView("audit")}>Open full audit trail →</button></div><div className="audit-line">{visibleAudit.slice(-4).map((row) => <div key={row[4]}><span>{row[0]}</span><strong>{row[1]}</strong><p>{row[2]}</p><em className={row[3] === "Review" ? "review" : "verified"}>{row[3]}</em></div>)}</div></article>
       </>}
     </main>
+    {showCitations && <div className="modal-backdrop" role="presentation" onClick={() => setShowCitations(false)}><section className="citation-drawer" role="dialog" aria-modal="true" aria-label="Evidence citations" onClick={(event) => event.stopPropagation()}><div className="citation-head"><div><p className="section-kicker">SOURCE PROVENANCE</p><h2>Evidence citations</h2></div><button aria-label="Close citations" onClick={() => setShowCitations(false)}>×</button></div><p className="citation-note">Every score below points to the exact synthetic source segment used by the deterministic policy kernel. No PDF or university record is implied.</p>{(analysis?.outcomes || []).map((item, index) => <article className="citation-row" key={item.citation}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{item.label}</strong><code>{item.citation}</code></div><b>{Math.round(item.score * 100)}%</b></article>)}{!analysis && <p className="citation-empty">Run the synthetic case to generate hashed citations.</p>}<div className="citation-hash"><span>Document SHA-256</span><code>{analysis?.documentHash || "Generated after execution"}</code></div></section></div>}
     {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
   </div>;
 }
@@ -188,11 +210,13 @@ function Overview({ onOpen, savedCases, ledgerMode }: { onOpen: () => void; save
     { caseId: "CB-2026-0145", sourceCourse: "DVC COMSC 210", targetCourse: "UCLA PIC 10B", confidence: 79, status: "human_review" as const, updatedAt: "" },
   ];
   const stateLabel = { human_review: "Human review", packet_ready: "Packet ready", approved: "Approved", escalated: "Faculty review" };
-  return <div className="overview-page"><section className="overview-hero"><div><span className="signal">LIVE OPERATIONS · {ledgerMode === "durable" ? "DURABLE LEDGER ACTIVE" : "SYNTHETIC DEMO"}</span><h2>Eight cases. Two decisions.<br />No paperwork lost.</h2><p>CreditBridge processes evidence inside bounded policy controls and persists every authorized decision with a tamper-evident receipt.</p></div><div className="throughput"><strong>{savedCases.length || 8}</strong><span>cases in the decision ledger</span><small>{ledgerMode === "durable" ? "D1 persistence verified" : "ready for hosted storage"}</small></div></section><section className="metrics"><Metric label="Open cases" value={String(rows.filter((item) => item.status === "human_review").length)} detail="Requiring academic judgment" /><Metric label="Autonomous completion" value="74%" detail="Within approved policy bounds" accent /><Metric label="Median review time" value="11m" detail="Down from 2.6 hours" /><Metric label="Recorded cases" value={String(savedCases.length)} detail={ledgerMode === "durable" ? "Stored across sessions" : "Awaiting hosted ledger"} /></section><article className="panel queue-panel"><div className="panel-head"><div><p className="section-kicker">PRIORITY QUEUE</p><h3>Cases requiring attention</h3></div><span className={`ledger-chip ${ledgerMode === "durable" ? "ledger-live" : ""}`}>{ledgerMode === "durable" ? "● Durable" : "○ Demo"}</span></div><div className="queue-head"><span>Case</span><span>Course path</span><span>Confidence</span><span>State</span><span>Updated</span></div>{rows.slice(0, 6).map((item) => <button className="queue-row" onClick={onOpen} key={item.caseId}><div><strong>{item.caseId}</strong><small>{item.sourceCourse}</small></div><span>{item.targetCourse}</span><b>{item.confidence}%</b><em className={item.status === "packet_ready" || item.status === "approved" ? "verified" : "review"}>{stateLabel[item.status]}</em><span>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "Demo"}</span></button>)}</article></div>;
+  const decisions = savedCases.filter((item) => item.status === "approved" || item.status === "escalated").length;
+  return <div className="overview-page"><section className="overview-hero"><div><span className="signal">LIVE OPERATIONS · {ledgerMode === "durable" ? "DURABLE LEDGER ACTIVE" : "SYNTHETIC DEMO"}</span><h2>{savedCases.length || 1} recorded case{savedCases.length === 1 ? "" : "s"}. {decisions} human decision{decisions === 1 ? "" : "s"}.<br />Every event traceable.</h2><p>CreditBridge processes synthetic evidence inside bounded policy controls and persists every authorized decision with a tamper-evident receipt.</p></div><div className="throughput"><strong>{savedCases.length || 1}</strong><span>case{savedCases.length === 1 ? "" : "s"} in the decision ledger</span><small>{ledgerMode === "durable" ? "D1 persistence verified" : "ready for hosted storage"}</small></div></section><section className="metrics"><Metric label="Open cases" value={String(rows.filter((item) => item.status === "human_review").length)} detail="Requiring academic judgment" /><Metric label="Human decisions" value={String(decisions)} detail="Receipts sealed in the ledger" accent /><Metric label="Safety boundary" value="100%" detail="Final decisions remain human" /><Metric label="Recorded cases" value={String(savedCases.length)} detail={ledgerMode === "durable" ? "Stored across sessions" : "Awaiting hosted ledger"} /></section><article className="panel queue-panel"><div className="panel-head"><div><p className="section-kicker">PRIORITY QUEUE</p><h3>Cases requiring attention</h3></div><span className={`ledger-chip ${ledgerMode === "durable" ? "ledger-live" : ""}`}>{ledgerMode === "durable" ? "● Durable" : "○ Demo"}</span></div><div className="queue-head"><span>Case</span><span>Course path</span><span>Confidence</span><span>State</span><span>Updated</span></div>{rows.slice(0, 6).map((item) => <button className="queue-row" onClick={onOpen} key={item.caseId}><div><strong>{item.caseId}</strong><small>{item.sourceCourse}</small></div><span>{item.targetCourse}</span><b>{item.confidence}%</b><em className={item.status === "packet_ready" || item.status === "approved" ? "verified" : "review"}>{stateLabel[item.status]}</em><span>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "Demo"}</span></button>)}</article></div>;
 }
 
-function Audit({ analysis, receiptHash }: { analysis: Analysis | null; receiptHash: string }) {
-  const rows = analysis?.audit.map((item) => [item.time, item.actor, item.action, item.control, item.eventId]) || auditRows;
+function Audit({ analysis, receiptHash, decisionEvent }: { analysis: Analysis | null; receiptHash: string; decisionEvent: AuditEvent | null }) {
+  const baseRows = analysis?.audit.map((item) => [item.time, item.actor, item.action, item.control, item.eventId]) || auditRows;
+  const rows = decisionEvent ? [...baseRows, [decisionEvent.time, decisionEvent.actor, decisionEvent.action, decisionEvent.control, decisionEvent.eventId]] : baseRows;
   const root = receiptHash || analysis?.documentHash || "4b87c91a";
   return <div className="audit-page"><section className="audit-summary"><div><span>CASE</span><strong>{analysis?.caseId || "CB-2026-0148"}</strong><small>Every claim traceable to source</small></div><div><span>EVENTS</span><strong>{rows.length}</strong><small>0 mutations detected</small></div><div><span>POLICY</span><strong>v2.4</strong><small>Effective Aug 01, 2026</small></div><div><span>INTEGRITY</span><strong className="good">Verified</strong><small>{receiptHash ? "Human receipt sealed" : "Evidence hash present"}</small></div></section><article className="panel audit-table"><div className="panel-head"><div><p className="section-kicker">PROVENANCE LEDGER</p><h3>Case events</h3></div><button className="secondary" onClick={() => window.print()}>Export receipt</button></div><div className="audit-table-head"><span>Time</span><span>Actor</span><span>Action</span><span>Control</span><span>Event ID</span></div>{rows.map(row => <div className="audit-table-row" key={row[4]}><span>{row[0]}</span><strong>{row[1]}</strong><span>{row[2]}</span><em className={row[3] === "Review" ? "review" : "verified"}>{row[3]}</em><code>{row[4]}</code></div>)}</article><article className="integrity panel"><div className="integrity-mark">✓</div><div><h3>Evidence chain verified</h3><p>All agent inputs, policy evaluations, and human decisions are linked by tamper-evident receipts. No mutation was detected in this synthetic demo packet.</p></div><code>root: {root.slice(0, 8)}…{root.slice(-4)}</code></article></div>;
 }

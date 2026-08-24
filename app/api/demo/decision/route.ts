@@ -1,5 +1,5 @@
 import { sealDecision } from "../../../../lib/demo-engine";
-import { persistDecision } from "../../../../lib/case-store";
+import { getCaseChainHead, persistDecision } from "../../../../lib/case-store";
 
 export async function POST(request: Request) {
   try {
@@ -11,16 +11,24 @@ export async function POST(request: Request) {
       return Response.json({ error: "decision must be approve or escalate." }, { status: 422 });
     }
     const note = typeof body.note === "string" ? body.note : "";
-    const receipt = sealDecision(body.caseId, body.decision, note, body.previousHash);
+    const authoritativeHead = await getCaseChainHead(body.caseId);
+    const receipt = sealDecision(body.caseId, body.decision, note, authoritativeHead || body.previousHash);
+    const auditEvent = {
+      time: receipt.timestamp.slice(11, 19),
+      actor: "Authorized Advisor",
+      action: body.decision === "approve" ? "Approved equivalency with condition" : "Escalated to faculty reviewer",
+      control: "Human decision",
+      eventId: `evt_${receipt.receiptHash.slice(0, 8)}`,
+    };
     const persisted = await persistDecision({
       caseId: body.caseId,
       decision: body.decision,
       note,
-      previousHash: body.previousHash,
+      previousHash: receipt.previousHash,
       receiptHash: receipt.receiptHash,
       timestamp: receipt.timestamp,
     });
-    return Response.json({ ...receipt, persistence: persisted ? "durable" : "local-only" }, { status: 201, headers: { "cache-control": "no-store" } });
+    return Response.json({ ...receipt, auditEvent, persistence: persisted ? "durable" : "local-only" }, { status: 201, headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ error: "The authorized decision could not be recorded." }, { status: 500 });
   }
