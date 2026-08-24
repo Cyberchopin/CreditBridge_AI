@@ -2,10 +2,9 @@
 
 **Autonomous transfer-credit operations with human-controlled academic decisions.**
 
-[Open the hosted synthetic demo](https://creditbridge-ai.wangshiyue1128.chatgpt.site)
+[Open the production demo](https://creditbridge-ai.cyberchopin.workers.dev)
 
-The current ChatGPT Sites deployment remains the rollback environment while an
-independent Cloudflare Workers + D1 production deployment is brought online.
+The production interface runs on Cloudflare Workers with a durable D1 case ledger. The previous ChatGPT Sites deployment remains available only as a rollback environment.
 
 CreditBridge receives transcripts, syllabi, and degree requirements; constructs a cited evidence graph; compares course outcomes; applies institutional policy; and assembles a decision-ready packet. It interrupts an advisor only when evidence is incomplete, contradictory, low-confidence, or requires academic judgment.
 
@@ -48,6 +47,7 @@ flowchart LR
 - Deterministic policy kernel with validation and tests for high-confidence, weak, incomplete, malformed, and non-synthetic cases.
 - Strands Agents SDK orchestration plus an AgentCore-compatible container entrypoint.
 - GitHub Actions checks for the web build, API workflow, policy tests, linting, and Python compilation.
+- Cloudflare Workers production deployment with durable D1 case persistence.
 - Responsive desktop and mobile layout.
 
 The hosted interface uses a synthetic, de-identified demonstration case and a real server endpoint, but it does **not** call Amazon Bedrock. It does not claim a live university integration, production document extraction, or an official academic determination.
