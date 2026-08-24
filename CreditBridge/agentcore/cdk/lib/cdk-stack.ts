@@ -100,7 +100,6 @@ export class AgentCoreStack extends Stack {
     const { spec, mcpSpec, credentials, harnesses, connectorParametersByFile, paymentSpec } = props;
 
     // Create AgentCoreApplication with all agents and harness roles
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const appProps: Record<string, unknown> = { spec };
     if (harnesses?.length) {
       appProps.harnesses = harnesses;
@@ -111,7 +110,11 @@ export class AgentCoreStack extends Stack {
     if (credentials) {
       appProps.credentials = credentials;
     }
-    this.application = new AgentCoreApplication(this, 'Application', appProps as any);
+    this.application = new AgentCoreApplication(
+      this,
+      'Application',
+      appProps as unknown as ConstructorParameters<typeof AgentCoreApplication>[2],
+    );
 
     // Create AgentCoreMcp if there are gateways configured
     if (mcpSpec?.agentCoreGateways && mcpSpec.agentCoreGateways.length > 0) {
