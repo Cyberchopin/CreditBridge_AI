@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "creditbridge-agent-runtime"
 version = "0.2.0"
 description = "Evidence-grounded transfer-credit operations agent"
@@ -6,7 +6,6 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     "bedrock-agentcore",
     "strands-agents>=1.0,<2.0",
-    "botocore[crt]",
 ]
 
 [tool.uv]

@@ -94,3 +94,5 @@ CreditBridge/agentcore/.llm-context/
 # Local deployment/test artifacts
 CreditBridge/agentcore/cdk/cdk-bootstrap-template.yaml
 CreditBridge/cloud-test-payload.json
+CreditBridge/cloud-response.json
+CreditBridge/agentcore/*.backup.json
