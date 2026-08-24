@@ -1,4 +1,5 @@
 import { analyzeDemoCase } from "../../../../lib/demo-engine";
+import { persistAnalysis } from "../../../../lib/case-store";
 
 export async function POST(request: Request) {
   try {
@@ -8,13 +9,15 @@ export async function POST(request: Request) {
     }
     const sourceText = typeof body.sourceText === "string" ? body.sourceText : "";
     if (sourceText.length > 50_000) return Response.json({ error: "Demo source is limited to 50,000 characters." }, { status: 413 });
-    return Response.json(analyzeDemoCase({
+    const analysis = analyzeDemoCase({
       caseId: typeof body.caseId === "string" ? body.caseId : undefined,
       sourceCourse: typeof body.sourceCourse === "string" ? body.sourceCourse : undefined,
       targetCourse: typeof body.targetCourse === "string" ? body.targetCourse : undefined,
       sourceText,
-    }), { headers: { "cache-control": "no-store" } });
+    });
+    const persisted = await persistAnalysis(analysis);
+    return Response.json({ ...analysis, persistence: persisted ? "durable" : "local-only" }, { headers: { "cache-control": "no-store" } });
   } catch {
-    return Response.json({ error: "Invalid JSON request." }, { status: 400 });
+    return Response.json({ error: "The case could not be analyzed or persisted." }, { status: 500 });
   }
 }

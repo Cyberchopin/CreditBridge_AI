@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type View = "queue" | "case" | "audit";
 type PipelineState = "ready" | "running" | "review" | "approved";
@@ -14,6 +14,15 @@ type Analysis = {
   outcomes: Array<{ label: string; classification: "Direct" | "Partial" | "Missing depth"; score: number; citation: string }>;
   documentHash: string;
   audit: Array<{ time: string; actor: string; action: string; control: string; eventId: string }>;
+  persistence?: "durable" | "local-only";
+};
+type StoredCase = {
+  caseId: string;
+  sourceCourse: string;
+  targetCourse: string;
+  confidence: number;
+  status: "human_review" | "packet_ready" | "approved" | "escalated";
+  updatedAt: string;
 };
 
 const agentSteps = [
@@ -61,8 +70,35 @@ export default function CreditBridgeApp() {
   const [sourceText, setSourceText] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [receiptHash, setReceiptHash] = useState("");
+  const [savedCases, setSavedCases] = useState<StoredCase[]>([]);
+  const [ledgerMode, setLedgerMode] = useState<"durable" | "local-only">("local-only");
   const fileRef = useRef<HTMLInputElement>(null);
   const statusLabel = useMemo(() => ({ ready: "Ready to analyze", running: "Agents working", review: "Human review required", approved: "Decision recorded" }[pipeline]), [pipeline]);
+
+  async function refreshCases() {
+    try {
+      const response = await fetch("/api/demo/cases", { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { cases: StoredCase[]; persistence: "durable" | "local-only" };
+      setSavedCases(result.cases);
+      setLedgerMode(result.persistence);
+    } catch {
+      setLedgerMode("local-only");
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/demo/cases", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result: { cases: StoredCase[]; persistence: "durable" | "local-only" } | null) => {
+        if (!active || !result) return;
+        setSavedCases(result.cases);
+        setLedgerMode(result.persistence);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   async function runPipeline() {
@@ -75,6 +111,8 @@ export default function CreditBridgeApp() {
       if (!response.ok) throw new Error("analysis request failed");
       const result = await response.json() as Analysis;
       setAnalysis(result); setActiveStep(5); setPipeline(result.decision === "packet_ready" ? "ready" : "review");
+      setLedgerMode(result.persistence || "local-only");
+      await refreshCases();
       notify(result.decision === "packet_ready" ? "Evidence packet ready for authorized review" : "Analysis complete — one decision requires your review");
     } catch {
       setPipeline("ready"); setActiveStep(0); notify("Analysis could not complete. No decision was recorded.");
@@ -83,8 +121,10 @@ export default function CreditBridgeApp() {
   async function decide(decision: "approve" | "escalate") {
     const response = await fetch("/api/demo/decision", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ caseId: analysis?.caseId || "CB-2026-0148", decision, note, previousHash: analysis?.documentHash || "demo-genesis" }) });
     if (!response.ok) { notify("Decision was not recorded."); return; }
-    const receipt = await response.json() as { receiptHash: string };
+    const receipt = await response.json() as { receiptHash: string; persistence?: "durable" | "local-only" };
     setReceiptHash(receipt.receiptHash);
+    setLedgerMode(receipt.persistence || "local-only");
+    await refreshCases();
     if (decision === "approve") { setPipeline("approved"); notify("Equivalency approved and audit receipt sealed"); }
     else { setPipeline("review"); notify("Case routed to Computer Science faculty reviewer"); }
   }
@@ -117,10 +157,10 @@ export default function CreditBridgeApp() {
     <main className="workspace">
       <header className="topbar"><div><p className="eyebrow">TRANSFER CREDIT OPERATIONS</p><h1>{view === "case" ? "Decision workspace" : view === "audit" ? "Evidence audit trail" : "Advisor command center"}</h1></div><div className="top-actions"><button className="icon-button" aria-label="Notifications">●<span /></button><button className="secondary" onClick={exportReport}>↓ Export</button><button className="secondary" onClick={() => fileRef.current?.click()}>＋ Add source text</button><input ref={fileRef} type="file" multiple hidden onChange={onFiles} accept=".txt,.csv,.json,.md" /><button className="primary" onClick={runPipeline}>{pipeline === "running" ? "Analyzing…" : "Run agents"}<span>→</span></button></div></header>
 
-      {view === "queue" && <Overview onOpen={() => setView("case")} />}
+      {view === "queue" && <Overview onOpen={() => setView("case")} savedCases={savedCases} ledgerMode={ledgerMode} />}
       {view === "audit" && <Audit analysis={analysis} receiptHash={receiptHash} />}
       {view === "case" && <>
-        <section className="case-strip"><div><button className="back" onClick={() => setView("queue")}>← All cases</button><div className="case-title"><span className="case-id">CB-2026-0148</span><h2>IVC CS 38 → UCLA Computer Science</h2><span className={`status-pill status-${pipeline}`}>{statusLabel}</span></div></div><div className="case-meta"><span>Record <strong>Synthetic D-1048</strong></span><span>Received <strong>Aug 21, 2026</strong></span><span>SLA <strong className="good">18h remaining</strong></span></div></section>
+        <section className="case-strip"><div><button className="back" onClick={() => setView("queue")}>← All cases</button><div className="case-title"><span className="case-id">CB-2026-0148</span><h2>IVC CS 38 → UCLA Computer Science</h2><span className={`status-pill status-${pipeline}`}>{statusLabel}</span></div></div><div className="case-meta"><span>Record <strong>Synthetic D-1048</strong></span><span>Ledger <strong className={ledgerMode === "durable" ? "good" : ""}>{ledgerMode === "durable" ? "Durable" : "Local demo"}</strong></span><span>SLA <strong className="good">18h remaining</strong></span></div></section>
         {uploaded.length > 0 && <div className="upload-banner"><strong>Synthetic evidence ready</strong><span>{uploaded.join(" · ")} · do not upload real student records</span><button onClick={runPipeline}>Analyze now</button></div>}
         <section className="metrics"><Metric label="Recommended match" value={selectedMatch} detail="UCLA Computer Science" /><Metric label="Evidence confidence" value={`${analysis?.confidence ?? 87}%`} detail={`${analysis?.outcomes.length ?? 4} required outcomes evaluated`} accent /><Metric label="Estimated time saved" value="2.4h" detail="Per evaluation case" /><Metric label="Decision risk" value={analysis?.decision === "packet_ready" ? "Low" : "Medium"} detail={analysis?.exception || "Lab-depth ambiguity"} /></section>
 
@@ -141,8 +181,14 @@ export default function CreditBridgeApp() {
   </div>;
 }
 
-function Overview({ onOpen }: { onOpen: () => void }) {
-  return <div className="overview-page"><section className="overview-hero"><div><span className="signal">LIVE OPERATIONS</span><h2>Eight cases. Two decisions.<br />No paperwork lost.</h2><p>CreditBridge processed 186 evidence items this week and returned 74% of cases without manual document triage.</p></div><div className="throughput"><strong>31.4h</strong><span>advisor time returned</span><small>↑ 18% this week</small></div></section><section className="metrics"><Metric label="Open cases" value="8" detail="3 due within 24 hours" /><Metric label="Autonomous completion" value="74%" detail="Within approved policy bounds" accent /><Metric label="Median review time" value="11m" detail="Down from 2.6 hours" /><Metric label="Exceptions" value="2" detail="Awaiting human judgment" /></section><article className="panel queue-panel"><div className="panel-head"><div><p className="section-kicker">PRIORITY QUEUE</p><h3>Cases requiring attention</h3></div><button className="text-button">Filter: All cases⌄</button></div><div className="queue-head"><span>Case</span><span>Institution</span><span>Confidence</span><span>State</span><span>SLA</span></div><button className="queue-row" onClick={onOpen}><div><strong>CB-2026-0148</strong><small>IVC CS 38 → UCLA CS</small></div><span>Irvine Valley College</span><b>87%</b><em className="review">Human review</em><span className="good">18h</span></button><div className="queue-row"><div><strong>CB-2026-0147</strong><small>SCC MATH 3A → UCLA MATH 31A</small></div><span>Saddleback College</span><b>96%</b><em className="verified">Packet ready</em><span>1d 4h</span></div><div className="queue-row"><div><strong>CB-2026-0145</strong><small>DVC COMSC 210 → UCLA PIC 10B</small></div><span>Diablo Valley College</span><b>79%</b><em className="review">Evidence needed</em><span>2d</span></div></article></div>;
+function Overview({ onOpen, savedCases, ledgerMode }: { onOpen: () => void; savedCases: StoredCase[]; ledgerMode: "durable" | "local-only" }) {
+  const rows = savedCases.length ? savedCases : [
+    { caseId: "CB-2026-0148", sourceCourse: "IVC CS 38", targetCourse: "UCLA CS 33", confidence: 87, status: "human_review" as const, updatedAt: "" },
+    { caseId: "CB-2026-0147", sourceCourse: "SCC MATH 3A", targetCourse: "UCLA MATH 31A", confidence: 96, status: "packet_ready" as const, updatedAt: "" },
+    { caseId: "CB-2026-0145", sourceCourse: "DVC COMSC 210", targetCourse: "UCLA PIC 10B", confidence: 79, status: "human_review" as const, updatedAt: "" },
+  ];
+  const stateLabel = { human_review: "Human review", packet_ready: "Packet ready", approved: "Approved", escalated: "Faculty review" };
+  return <div className="overview-page"><section className="overview-hero"><div><span className="signal">LIVE OPERATIONS · {ledgerMode === "durable" ? "DURABLE LEDGER ACTIVE" : "SYNTHETIC DEMO"}</span><h2>Eight cases. Two decisions.<br />No paperwork lost.</h2><p>CreditBridge processes evidence inside bounded policy controls and persists every authorized decision with a tamper-evident receipt.</p></div><div className="throughput"><strong>{savedCases.length || 8}</strong><span>cases in the decision ledger</span><small>{ledgerMode === "durable" ? "D1 persistence verified" : "ready for hosted storage"}</small></div></section><section className="metrics"><Metric label="Open cases" value={String(rows.filter((item) => item.status === "human_review").length)} detail="Requiring academic judgment" /><Metric label="Autonomous completion" value="74%" detail="Within approved policy bounds" accent /><Metric label="Median review time" value="11m" detail="Down from 2.6 hours" /><Metric label="Recorded cases" value={String(savedCases.length)} detail={ledgerMode === "durable" ? "Stored across sessions" : "Awaiting hosted ledger"} /></section><article className="panel queue-panel"><div className="panel-head"><div><p className="section-kicker">PRIORITY QUEUE</p><h3>Cases requiring attention</h3></div><span className={`ledger-chip ${ledgerMode === "durable" ? "ledger-live" : ""}`}>{ledgerMode === "durable" ? "● Durable" : "○ Demo"}</span></div><div className="queue-head"><span>Case</span><span>Course path</span><span>Confidence</span><span>State</span><span>Updated</span></div>{rows.slice(0, 6).map((item) => <button className="queue-row" onClick={onOpen} key={item.caseId}><div><strong>{item.caseId}</strong><small>{item.sourceCourse}</small></div><span>{item.targetCourse}</span><b>{item.confidence}%</b><em className={item.status === "packet_ready" || item.status === "approved" ? "verified" : "review"}>{stateLabel[item.status]}</em><span>{item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "Demo"}</span></button>)}</article></div>;
 }
 
 function Audit({ analysis, receiptHash }: { analysis: Analysis | null; receiptHash: string }) {

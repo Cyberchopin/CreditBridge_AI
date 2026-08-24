@@ -4,6 +4,9 @@
 
 [Open the hosted synthetic demo](https://creditbridge-ai.wangshiyue1128.chatgpt.site)
 
+The current ChatGPT Sites deployment remains the rollback environment while an
+independent Cloudflare Workers + D1 production deployment is brought online.
+
 CreditBridge receives transcripts, syllabi, and degree requirements; constructs a cited evidence graph; compares course outcomes; applies institutional policy; and assembles a decision-ready packet. It interrupts an advisor only when evidence is incomplete, contradictory, low-confidence, or requires academic judgment.
 
 > CreditBridge recommends and prepares. Authorized institutional staff make every final credit decision.
@@ -76,6 +79,9 @@ Run the complete web acceptance suite:
 ```bash
 npm test
 ```
+
+For the independent Cloudflare production path, see the
+[Cloudflare deployment runbook](docs/cloudflare-deployment.md).
 
 ### Agent runtime
 
